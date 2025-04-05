@@ -1,4 +1,4 @@
-from django.shortcuts import render, redirect
+from django.shortcuts import render
 import requests
 from bs4 import BeautifulSoup
 from .models import Link
@@ -7,36 +7,78 @@ from django.contrib import messages
 from django.http import HttpResponseRedirect
 
 
+# Define the Django view to handle scraping and showing scraped links
 def scrape(request):
+
+    # Check if the request method is POST (i.e., form submission)
     if request.method == "POST":
-        site = request.POST.get('site', '').strip()  # ✅ Ensure site URL is properly stripped
-
-        if not site:  # ✅ Prevent empty site submission
-            messages.error(request, "❌ Please enter a valid URL.")  # ✅ Show error message           
+        
+        # Get the URL from the POST data and strip extra spaces
+        site = request.POST.get('site', '').strip()
+        
+        # If no URL is provided, show an error and redirect back
+        if not site:
+            messages.error(request, "❌ Please enter a valid URL.")
             return HttpResponseRedirect('/')
-
+        
         try:
+            # Send a GET request to the provided site
             page = requests.get(site)
+
+            # Parse the HTML content using BeautifulSoup
             soup = BeautifulSoup(page.text, 'html.parser')
+            print(soup.prettify())
 
+            # Loop through all anchor tags on the page
             for link in soup.find_all('a'):
-                link_address = link.get('href') or "No URL"  # ✅ Handle missing href
-                link_text = link.string or "No Text"  # ✅ Handle missing text
-                Link.objects.create(address=link_address, name=link_text)
 
+                # Get the href (link address)
+                link_address = link.get('href')
+                print(link_address,'\n')
+
+                # Get the visible text of the link and strip it
+                link_text = link.text.strip()
+                print(link_text)
+
+                # Save the link into the database
+                Link.objects.create(address=link_address, name=link_text)
+                data_list = Link.objects.all().order_by('-id')
+
+                # Paginate the results, 10 items per page
+                paginator = Paginator(data_list, 10)
+
+                # Get the current page number from the query parameters
+                page_number = request.GET.get('page')
+
+                # Get the relevant page of data
+                data = paginator.get_page(page_number)
+
+        # Handle any exceptions during the request
         except requests.RequestException as e:
+            # Log the error in the console
             print(f"Error fetching site: {e}")
+            
+            # Redirect back to home page
             return HttpResponseRedirect('/')
 
+        # After processing, redirect to home page
         return HttpResponseRedirect('/')
 
+    # If request method is GET (i.e., viewing page, not submitting)
     else:
-        data_list = Link.objects.all().order_by('-id')  # ✅ Fetch all links, latest first
-        paginator = Paginator(data_list, 10)  # ✅ Show 10 links per page
+        # Get all Link objects ordered by most recent first
+        data_list = Link.objects.all().order_by('-id')
 
-        page_number = request.GET.get('page')  # ✅ Get page number from URL
-        data = paginator.get_page(page_number)  # ✅ Get paginated data
+        # Paginate the results, 10 items per page
+        paginator = Paginator(data_list, 10)
 
+        # Get the current page number from the query parameters
+        page_number = request.GET.get('page')
+
+        # Get the relevant page of data
+        data = paginator.get_page(page_number)
+
+        # Render the HTML template with the paginated data
     return render(request, 'scrapper/index.html', {'data': data})
 
 
